@@ -48,12 +48,57 @@ about than a multi-agent system.
 ## Core Capabilities
 
 - Diagnose learning progress using enrollment, quiz, assignment, and deadline data.
-- Generate and persist structured seven-day study plans.
+- Generate and persist structured 3-14 day study plans (seven days by default), with time,
+  priority, and evidence-based reasons for every task.
 - Retrieve authorized PDF passages with source title and page citations.
 - Restore multi-turn conversations after a browser refresh.
 - Stream tokens and statuses such as `get_assessment_performance started`.
 - Reject cross-user access through JWT identity, fixed SQL, and repository-level filtering.
 - Expose `/health/live`, `/health/ready`, `/metrics`, and OpenAPI documentation.
+
+## Agent Tools
+
+The model can choose from six asynchronous, typed tools. Identity is closed over in the trusted
+runtime context, so none of these schemas accepts a `user_id` from the model:
+
+| Tool | Responsibility and boundary |
+| --- | --- |
+| `get_student_profile` | Reads enrolled courses, progress, and completion state. |
+| `get_assessment_performance` | Returns recent quiz attempts, assignment results, and average quiz score from enrolled courses. |
+| `get_upcoming_deadlines` | Returns at most 20 deadlines over a bounded 1-30 day window. |
+| `search_course_materials` | Searches one enrolled course and returns threshold-filtered PDF evidence. |
+| `create_study_plan` | Concurrently gathers profile, assessment, and deadline evidence, then supersedes the previous active plan. |
+| `get_active_study_plan` | Restores the latest persisted plan for follow-up questions. |
+
+The graph caps the model at four tool rounds. A grounding guard checks whether answers containing
+grade, progress, or deadline claims have the corresponding tool evidence; unsupported claims are
+replaced with a conservative response rather than presented as facts.
+
+## Engineering Details
+
+**RAG ingestion and retrieval**
+
+- Text is extracted page-by-page with `pypdf`, split into roughly 400-word chunks with 60-word
+  overlap, and embedded locally into 384-dimensional vectors.
+- SHA-256 file hashes make indexing incremental; unchanged PDFs are skipped and changed documents
+  atomically replace their previous chunks.
+- Remote sources use an explicit hostname allowlist, disabled redirects, streamed size checks,
+  and configurable file/page limits. Local paths are resolved inside a read-only upload root to
+  prevent path traversal.
+- Retrieval performs an enrollment join before exact cosine ranking, caps `top_k`, applies a
+  configurable similarity threshold, and limits excerpts to 500 characters.
+
+**State, reliability, and operations**
+
+- PostgreSQL stores product conversations, messages, versioned study plans, LangGraph checkpoints,
+  document chunks, and an audit record for every Agent run in a separate `agent` schema.
+- Run records capture model, status, end-to-end latency, token usage, tool names and argument keys,
+  trace ID, and sanitized error type; full prompts and session cookies are not logged.
+- The OpenAI-compatible client uses streaming, a configurable timeout, two SDK retries, and a
+  bounded tool loop. Client disconnects stop the SSE producer and failed runs receive a consistent
+  typed error event.
+- OpenTelemetry instruments FastAPI, HTTPX, and SQLAlchemy, with optional OTLP export. Prometheus
+  tracks run outcomes and latency, tool outcomes, and retrieval result counts.
 
 ## Technology
 
@@ -73,11 +118,18 @@ about than a multi-agent system.
 ## Security Boundaries
 
 - The browser calls only the Next.js `/api/chatbot` BFF.
-- Next.js validates the Better Auth session and signs a 60-second internal token.
+- Next.js validates the Better Auth session and signs a 60-second internal token with `sub`,
+  `role`, `iss`, `aud`, `iat`, `exp`, and unique `jti` claims.
 - FastAPI injects the authenticated user into runtime Tool context.
 - Tool schemas never expose a model-controlled `user_id` argument.
+- FastAPI requires all JWT claims, restricts accepted roles, and rejects tokens whose lifetime is
+  longer than 90 seconds.
+- Pydantic rejects unknown request fields, limits messages to 4,000 characters, and validates IDs
+  and structured response artifacts.
 - LMS access uses fixed, parameterized queries; generated SQL is not executed.
 - Retrieval checks enrollment before searching vectors to prevent cross-course leakage.
+- Course indexing requires a teacher token and verifies that the teacher owns the course.
+- Retrieved document text is treated as untrusted evidence and cannot override Agent instructions.
 - Logs retain trace IDs and operational metadata, not session cookies or full private prompts.
 
 See [architecture decisions](ai-agent/docs/architecture.md) for tradeoffs and scale paths.
@@ -145,22 +197,30 @@ Do not add `-v` unless deleting all local PostgreSQL data is intentional.
 
 ## API Contract
 
-The browser-facing BFF proxies a typed SSE protocol from the Agent:
-
-```text
-POST /v1/agent/runs/stream
-events: token | tool_status | final | error
-```
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /v1/agent/runs/stream` | Runs the Agent and emits `token`, `tool_status`, `final`, or `error` SSE events. |
+| `GET /v1/conversations/{id}` | Restores up to 100 messages after verifying conversation ownership. |
+| `POST /internal/index/courses/{id}` | Incrementally indexes PDFs for a teacher-owned course. |
+| `GET /health/live` | Process liveness probe. |
+| `GET /health/ready` | Database-aware readiness probe. |
+| `GET /metrics` | Prometheus exposition endpoint. |
 
 The final event contains `conversation_id`, `answer_markdown`, `citations`, an optional
 `study_plan`, suggested actions, and a trace ID. Protected Agent endpoints require the internal
-JWT and are not designed for direct browser access.
+JWT and are not designed for direct browser access. The Next.js BFF forwards request cancellation
+and disables proxy buffering so tokens reach the browser as they are generated.
 
 ## Quality and Evaluation
 
-Agent tests cover schema validation, JWT security, tenant isolation, ingestion, and planning.
-The offline dataset contains 30 cases for tool routing, grounding, authorization, and adversarial
-inputs.
+The current local baseline is 37 passing tests, including 20 parameterized cross-tenant database
+cases. Tests cover schema validation, JWT security, repository isolation, ingestion path safety,
+and deterministic planning. CI runs the same suite against PostgreSQL with pgvector after Ruff,
+mypy, and Alembic migration checks.
+
+The separate 30-case offline dataset exercises live model behavior across tool routing, grounding,
+authorization, citation requirements, and adversarial prompts. Its runner records expected versus
+observed tools, citation presence, forbidden-phrase checks, errors, and aggregate pass rate.
 
 ```bash
 cd ai-agent
