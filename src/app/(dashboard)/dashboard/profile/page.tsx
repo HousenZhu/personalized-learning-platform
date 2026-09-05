@@ -31,11 +31,14 @@ export default async function ProfilePage() {
     select: { score: true, passed: true },
   });
 
-  const avgQuizScore = quizAttempts.length > 0
-    ? quizAttempts.reduce((sum: number, a: { score: number }) => sum + a.score, 0) / quizAttempts.length
+  const scoredAttempts = quizAttempts.filter(
+    (attempt): attempt is { score: number; passed: boolean } => attempt.score !== null
+  );
+  const avgQuizScore = scoredAttempts.length > 0
+    ? scoredAttempts.reduce((sum, attempt) => sum + attempt.score, 0) / scoredAttempts.length
     : 0;
 
-  const passedQuizzes = quizAttempts.filter((a: { passed: boolean }) => a.passed).length;
+  const passedQuizzes = quizAttempts.filter((attempt) => attempt.passed).length;
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">

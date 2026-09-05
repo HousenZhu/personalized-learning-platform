@@ -3,6 +3,8 @@ import { NextRequest } from "next/server";
 import { getServerSession } from "@/lib/auth-server";
 import { db } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 // Store active connections (in production, use Redis or similar)
 const connections = new Map<string, Set<ReadableStreamDefaultController>>();
 
@@ -75,7 +77,7 @@ export async function GET(request: NextRequest) {
 }
 
 // Helper to broadcast to all connections for a course
-export function broadcastToCourseTopic(courseId: string, message: unknown) {
+function broadcastToCourseTopic(courseId: string, message: unknown) {
   const courseConnections = connections.get(courseId);
   if (!courseConnections) return;
 

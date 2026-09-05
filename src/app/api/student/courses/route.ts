@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth-server";
 import { db } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession();
@@ -11,10 +13,10 @@ export async function GET(request: NextRequest) {
     const userId = (session.user as { id: string }).id;
     // Find all courses the student is enrolled in
     const enrollments = await db.enrollment.findMany({
-      where: { userId },
+      where: { studentId: userId },
       include: {
         course: {
-          include: { instructor: { select: { name: true } } },
+          include: { teacher: { select: { name: true } } },
         },
       },
     });
@@ -22,7 +24,7 @@ export async function GET(request: NextRequest) {
       id: e.course.id,
       title: e.course.title,
       description: e.course.description,
-      instructor: e.course.instructor,
+      instructor: e.course.teacher,
     }));
     return NextResponse.json({ courses });
   } catch (error) {

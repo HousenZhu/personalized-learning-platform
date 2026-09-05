@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: learning_platform
+      POSTGRES_USER: coursepilot
+      POSTGRES_PASSWORD: coursepilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/01-agent.sql:/docker-entrypoint-initdb.d/01-agent.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coursepilot -d learning_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  agent:
+    restart: unless-stopped
+    build:
+      context: ./ai-agent
+    environment:
+      DATABASE_URL: postgresql+asyncpg://coursepilot:coursepilot@postgres:5432/learning_platform
+      CHECKPOINT_DATABASE_URL: postgresql://coursepilot:coursepilot@postgres:5432/learning_platform?options=-csearch_path%3Dagent%2Cpublic
+      AGENT_INTERNAL_SECRET: ${AGENT_INTERNAL_SECRET:?Add AGENT_INTERNAL_SECRET with at least 32 characters to .env}
+      AGENT_JWT_ISSUER: learnhub-web
+      AGENT_JWT_AUDIENCE: coursepilot-agent
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:4b}
+      UPLOADS_DIR: /data/public
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      LANGGRAPH_STRICT_MSGPACK: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./public:/data/public:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    restart: unless-stopped
+    build:
+      context: .
+    environment:
+      DATABASE_URL: postgresql://coursepilot:coursepilot@postgres:5432/learning_platform?schema=public
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Add BETTER_AUTH_SECRET to .env}
+      BETTER_AUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      AGENT_SERVICE_URL: http://agent:8000
+      AGENT_INTERNAL_SECRET: ${AGENT_INTERNAL_SECRET:?Add AGENT_INTERNAL_SECRET with at least 32 characters to .env}
+      AGENT_JWT_ISSUER: learnhub-web
+      AGENT_JWT_AUDIENCE: coursepilot-agent
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      AWS_S3_REGION: ${AWS_S3_REGION:-us-east-1}
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "3000:3000"
+      - "127.0.0.1:5555:5555"
+    command: ["sh", "-c", "npm run db:push && npm start"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

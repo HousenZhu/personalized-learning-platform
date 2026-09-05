@@ -1,78 +1,142 @@
+import { createHmac, randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { buildUserContext } from "@/lib/ai/context";
 import { getServerSession } from "@/lib/auth-server";
 
-const API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
+const AGENT_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8000";
+
+function base64Url(value: string | Buffer) {
+  return Buffer.from(value)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
+function createAgentToken(user: { id: string; role?: string }) {
+  const secret = process.env.AGENT_INTERNAL_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error("AGENT_INTERNAL_SECRET must contain at least 32 characters");
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64Url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = base64Url(JSON.stringify({
+    sub: user.id,
+    role: user.role || "STUDENT",
+    iss: process.env.AGENT_JWT_ISSUER || "learnhub-web",
+    aud: process.env.AGENT_JWT_AUDIENCE || "coursepilot-agent",
+    iat: now,
+    exp: now + 60,
+    jti: randomUUID(),
+  }));
+  const signature = base64Url(
+    createHmac("sha256", secret).update(`${header}.${payload}`).digest()
+  );
+  return `${header}.${payload}.${signature}`;
+}
+
+async function authenticatedAgentRequest(path: string, init?: RequestInit) {
+  const session = await getServerSession();
+  if (!session?.user?.id) {
+    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  }
+
+  const user = session.user as { id: string; role?: string };
+  const requestHeaders = new Headers(init?.headers);
+  requestHeaders.set("Authorization", `Bearer ${createAgentToken(user)}`);
+  const response = await fetch(`${AGENT_URL}${path}`, {
+    ...init,
+    headers: requestHeaders,
+    cache: "no-store",
+  });
+  return { response };
+}
+
+export async function POST(request: NextRequest) {
   try {
-    const { messages } = await req.json();
-    
-    const cleanMessages = (messages || []).filter(
-      (m: any) =>
-        m &&
-        typeof m.content === "string" &&
-        m.content.trim().length > 0
-    );
+    const body = await request.json();
+    const legacyMessages = Array.isArray(body.messages) ? body.messages : [];
+    const lastUserMessage = [...legacyMessages]
+      .reverse()
+      .find((item) => item?.role === "user" && typeof item.content === "string");
+    const message = typeof body.message === "string" ? body.message : lastUserMessage?.content;
 
-    const session = await getServerSession();
-
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!message?.trim()) {
+      return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
-    const userContext = await buildUserContext(session.user.id);
-
-    const systemPrompt = `
-      You are a personalized AI learning assistant.
-
-      Here is the user's learning context:
-      ${userContext}
-
-      Rules:
-      - Adapt explanations to user's level
-      - Suggest next steps
-      - Warn about deadlines
-      - Be concise
-      `;
-
-    const resp = await fetch(API_URL, {
+    const result = await authenticatedAgentRequest("/v1/agent/runs/stream", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.DASHSCOPE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        // model: "qwen-turbo" 不免费了
-        // model: "qwen3.5-flash-2026-02-23", 免费但是慢
-        // model: "qwen3.5-plus", 免费但是慢
-        model: "qwen3.5-35b-a3b", // 免费但是慢
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...cleanMessages,
-        ],
+        conversation_id: body.conversation_id || null,
+        message: message.trim(),
+        course_id: body.course_id || null,
       }),
+      signal: request.signal,
     });
+    if (result.error) return result.error;
 
-    const body = await resp.json();
-
-    console.log("MESSAGES:", messages);
-    console.log("AI RAW RESPONSE:", JSON.stringify(body, null, 2));
-
-    if (!resp.ok) {
+    const upstream = result.response!;
+    if (!upstream.ok || !upstream.body) {
+      const detail = await upstream.text();
       return NextResponse.json(
-        { error: body?.error?.message || "DashScope API error" },
-        { status: resp.status }
+        { error: "Agent service unavailable", detail },
+        { status: upstream.status || 502 }
       );
     }
 
-    return NextResponse.json({
-      message: body.choices?.[0]?.message?.content || "",
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
     });
-  } catch (err) {
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+  } catch (error) {
+    console.error("Chatbot proxy error", error);
+    return NextResponse.json({ error: "Agent service unavailable" }, { status: 502 });
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const conversationId = request.nextUrl.searchParams.get("conversationId");
+    if (!conversationId) {
+      return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
+    }
+    const result = await authenticatedAgentRequest(
+      `/v1/conversations/${encodeURIComponent(conversationId)}`
     );
+    if (result.error) return result.error;
+    const upstream = result.response!;
+    return NextResponse.json(await upstream.json(), { status: upstream.status });
+  } catch (error) {
+    console.error("Conversation proxy error", error);
+    return NextResponse.json({ error: "Agent service unavailable" }, { status: 502 });
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    if (typeof body.course_id !== "string" || !body.course_id) {
+      return NextResponse.json({ error: "course_id is required" }, { status: 400 });
+    }
+    const result = await authenticatedAgentRequest(
+      `/internal/index/courses/${encodeURIComponent(body.course_id)}`,
+      { method: "POST" }
+    );
+    if (result.error) return result.error;
+    const upstream = result.response!;
+    return NextResponse.json(await upstream.json(), { status: upstream.status });
+  } catch (error) {
+    console.error("Course indexing proxy error", error);
+    return NextResponse.json({ error: "Agent service unavailable" }, { status: 502 });
   }
 }

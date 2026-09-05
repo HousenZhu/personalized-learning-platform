@@ -35,7 +35,7 @@ export default async function DashboardLayout({
         </main>
       </div>
 
-      <Chatbot />
+      {user.role === "STUDENT" && <Chatbot />}
     </div>
   );
 }

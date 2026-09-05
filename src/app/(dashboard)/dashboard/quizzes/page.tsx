@@ -146,10 +146,16 @@ export default async function QuizzesPage() {
             passingScore: number;
             module: { course: { title: string } };
             _count: { questions: number };
-            attempts: Array<{ id: string; score: number; passed: boolean }>;
+            attempts: Array<{ id: string; score: number | null; passed: boolean }>;
           }) => {
-            const bestAttempt = quiz.attempts.reduce((best: { score: number; passed: boolean } | null, attempt) => 
-              !best || attempt.score > best.score ? attempt : best, null);
+            const scoredAttempts = quiz.attempts.filter(
+              (attempt): attempt is { id: string; score: number; passed: boolean } =>
+                attempt.score !== null
+            );
+            const bestAttempt = scoredAttempts.reduce<(typeof scoredAttempts)[number] | null>(
+              (best, attempt) => !best || attempt.score > best.score ? attempt : best,
+              null
+            );
             
             return (
               <Card key={quiz.id}>

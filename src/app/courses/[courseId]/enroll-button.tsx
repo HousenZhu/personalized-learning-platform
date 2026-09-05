@@ -20,13 +20,7 @@ export function EnrollButton({ courseId }: EnrollButtonProps) {
     setError("");
 
     try {
-      const result = await enrollInCourse(courseId);
-      
-      if ("error" in result) {
-        setError(result.error);
-        setLoading(false);
-        return;
-      }
+      await enrollInCourse(courseId);
 
       router.push(`/dashboard/courses/${courseId}`);
       router.refresh();

@@ -4,6 +4,8 @@ import { getServerSession } from "@/lib/auth-server";
 import { db } from "@/lib/db";
 import { generateIcsCalendar } from "@/lib/calendar";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession();
@@ -50,16 +52,11 @@ export async function GET(request: NextRequest) {
     });
 
     // Convert to calendar events
-    const deadlines = assignments.map((a: {
-      title: string;
-      description: string | null;
-      deadline: Date | null;
-      module: { course: { title: string } };
-    }) => ({
-      title: a.title,
-      description: a.description || undefined,
-      deadline: a.deadline,
-      courseTitle: a.module.course.title,
+    const deadlines = assignments.map((assignment) => ({
+      title: assignment.title,
+      description: assignment.description || undefined,
+      deadline: assignment.deadline,
+      courseTitle: assignment.module.course.title,
     }));
 
     // Generate ICS content

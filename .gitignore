@@ -9,9 +9,13 @@ build/
 
 # Testing
 coverage/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Environment
 .env
+ai-agent/.env
 .env.local
 .env.development.local
 .env.test.local
@@ -45,6 +49,15 @@ next-env.d.ts
 
 # Debug
 *.log
+ai-agent/evals/results.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Local model cache
+.cache/huggingface/
 
 # Local uploads (keep directory structure, ignore files)
 public/uploads/*

@@ -1,0 +1,38 @@
+name: Web Build
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "prisma/**"
+      - "package.json"
+      - "package-lock.json"
+      - "Dockerfile"
+      - ".github/workflows/web.yml"
+  push:
+    branches: [main, ZHS]
+    paths:
+      - "src/**"
+      - "prisma/**"
+      - "package.json"
+      - "package-lock.json"
+      - "Dockerfile"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://coursepilot:coursepilot@localhost:5432/learning_platform
+      BETTER_AUTH_SECRET: build-only-better-auth-secret-at-least-32-characters
+      BETTER_AUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      AGENT_INTERNAL_SECRET: build-only-agent-secret-at-least-32-characters
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build

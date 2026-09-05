@@ -5,6 +5,10 @@ import { db } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button } from "@/components/ui";
 import { SubmitAssignmentForm } from "./submit-form";
 
+interface AssignmentPageProps {
+  params: { assignmentId: string };
+}
+
 export default async function AssignmentPage({ params }: AssignmentPageProps) {
   const session = await getServerSession();
 
@@ -94,7 +98,11 @@ export default async function AssignmentPage({ params }: AssignmentPageProps) {
                   <p className="text-red-700">This assignment is past due and cannot be submitted.</p>
                 </div>
               ) : (
-                <SubmitAssignmentForm assignmentId={assignment.id} initialContent={submission?.content} initialFileUrl={submission?.fileUrl} />
+                <SubmitAssignmentForm
+                  assignmentId={assignment.id}
+                  initialContent={submission?.content ?? undefined}
+                  initialFileUrl={submission?.fileUrl ?? undefined}
+                />
               )}
             </div>
           )}

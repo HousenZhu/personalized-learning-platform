@@ -47,8 +47,13 @@ export default async function QuizPage({ params }: QuizPageProps) {
 
   const isTeacher = quiz.module.course.teacher.id === user.id;
   const hasAttempts = quiz.attempts.length > 0;
-  const bestAttempt = quiz.attempts.reduce((best: { score: number } | null, attempt: { score: number }) => 
-    !best || attempt.score > best.score ? attempt : best, null);
+  const scoredAttempts = quiz.attempts.filter(
+    (attempt): attempt is typeof attempt & { score: number } => attempt.score !== null
+  );
+  const bestAttempt = scoredAttempts.reduce<(typeof scoredAttempts)[number] | null>(
+    (best, attempt) => !best || attempt.score > best.score ? attempt : best,
+    null
+  );
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -168,21 +173,21 @@ export default async function QuizPage({ params }: QuizPageProps) {
             <div className="space-y-2">
               {quiz.attempts.map((attempt: {
                 id: string;
-                score: number;
+                score: number | null;
                 passed: boolean;
-                completedAt: Date | null;
+                submittedAt: Date | null;
               }, index: number) => (
                 <div key={attempt.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div>
                     <p className="font-medium">Attempt {quiz.attempts.length - index}</p>
                     <p className="text-sm text-gray-500">
-                      {attempt.completedAt 
-                        ? new Date(attempt.completedAt).toLocaleString()
+                      {attempt.submittedAt
+                        ? new Date(attempt.submittedAt).toLocaleString()
                         : 'In progress'}
                     </p>
                   </div>
                   <Badge variant={attempt.passed ? "success" : "secondary"}>
-                    {attempt.score}%
+                    {attempt.score !== null ? `${attempt.score}%` : "In progress"}
                   </Badge>
                 </div>
               ))}

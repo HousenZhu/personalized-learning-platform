@@ -121,7 +121,7 @@ interface CourseData {
   id: string;
   title: string;
   description: string | null;
-  isPublished: boolean;
+  published: boolean;
   teacher: { id: string; name: string };
   modules: Array<{
     id: string;
@@ -184,8 +184,8 @@ function TeacherCourseView({ course, analytics }: { course: CourseData; analytic
           <p className="text-gray-600">{course._count.enrollments} students enrolled</p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant={course.isPublished ? "success" : "secondary"}>
-            {course.isPublished ? "Published" : "Draft"}
+          <Badge variant={course.published ? "success" : "secondary"}>
+            {course.published ? "Published" : "Draft"}
           </Badge>
           <Link href={`/dashboard/courses/${course.id}/edit`}>
             <Button variant="outline">Edit Course</Button>
@@ -371,7 +371,7 @@ function TeacherCourseView({ course, analytics }: { course: CourseData; analytic
 interface EnrollmentData {
   id: string;
   progress: number;
-  completedContentIds: string[];
+  completed: boolean;
 }
 
 async function StudentCourseView({ 
@@ -448,7 +448,8 @@ async function StudentCourseView({
             <CardContent className="space-y-3">
               {/* Contents */}
               {module.contents.map((content) => {
-                const isCompleted = (enrollment?.completedContentIds ?? []).includes(content.id);
+                // The current LMS schema tracks course progress, not per-content completion.
+                const isCompleted = false;
                 return (
                   <Link
                     key={content.id}

@@ -3,6 +3,8 @@ export { uploadToS3 as uploadFile };
 // src/lib/storage.ts
 // Local file storage implementation (no cloud dependency)
 import AWS from "aws-sdk";
+import { existsSync } from "fs";
+import { mkdir } from "fs/promises";
 
 const S3_BUCKET = process.env.AWS_S3_BUCKET || "your-bucket-name";
 const S3_REGION = process.env.AWS_S3_REGION || "us-east-1";
@@ -88,11 +90,12 @@ export async function getFromS3(key: string): Promise<Buffer | null> {
   } catch {
     return null;
   }
-
+}
 
 /**
  * Get the public URL for a file
  */
+export function getPublicUrl(key: string): string {
   return `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${key}`;
 }
 

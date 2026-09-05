@@ -54,17 +54,11 @@ export function SubmitAssignmentForm({ assignmentId, initialContent = "", initia
         fileUrl = uploadData.url;
       }
 
-      const result = await submitAssignment({
+      await submitAssignment({
         assignmentId,
         content,
         fileUrl: fileUrl || undefined,
       });
-
-      if ("error" in result) {
-        setError(result.error);
-        setLoading(false);
-        return;
-      }
 
       setSuccess(true);
       setLoading(false);

@@ -1,309 +1,206 @@
-# Personalized Learning Platform
+# CoursePilot
 
-A full-stack learning management system built with Next.js 14, TypeScript, PostgreSQL, and Better Auth.
+Production-oriented AI learning agent built on a full-stack course management platform.
 
-## Video Demo
+[![Web Build](https://github.com/HousenZhu/react/actions/workflows/web.yml/badge.svg?branch=ZHS)](https://github.com/HousenZhu/react/actions/workflows/web.yml)
+[![AI Agent Quality](https://github.com/HousenZhu/react/actions/workflows/ai-agent.yml/badge.svg?branch=ZHS)](https://github.com/HousenZhu/react/actions/workflows/ai-agent.yml)
 
-https://www.youtube.com/watch?v=XEOUFniIkoA
+CoursePilot turns real LMS data into permission-scoped Agent tools. Instead of injecting one
+large user-context string into a chatbot prompt, it uses a bounded LangGraph workflow to query
+courses, assessments, progress, deadlines, study plans, and indexed course materials. Responses
+stream to the Next.js UI with tool status, citations, and persistent conversation history.
 
-## ? Features
+## Why This Project
 
-- **User Authentication**: Secure registration/login with role-based access (Teacher/Student)
-- **Course Management**: Create, edit, and publish courses with modules
-- **Content Delivery**: Support for PDFs, videos, and external links
-- **Quizzes**: Multiple-choice quizzes with automatic grading
-- **Assignments**: Submit work, receive grades and feedback
-- **Progress Tracking**: Monitor completion percentage and analytics
-- **Discussion Forums**: Real-time course discussions
-- **Certificates**: Generate PDF certificates on course completion
-- **Calendar Export**: Export deadlines to .ics format
+This repository demonstrates an end-to-end AI backend rather than a chat-completion wrapper:
 
-## ?? Tech Stack
+- A standalone asynchronous Python service with typed API and tool contracts.
+- Server-controlled identity propagation; the model cannot choose another user's ID.
+- Citation-backed RAG over course PDFs with enrollment filtering before vector ranking.
+- Persistent LangGraph checkpoints, product conversation history, and structured study plans.
+- SSE token streaming with visible tool lifecycle events in the web client.
+- Timeouts, bounded model/tool loops, structured logs, traces, metrics, and offline evaluations.
 
-| Layer | Technology |
-|-------|------------|
-| Framework | Next.js 14 (App Router) |
-| Language | TypeScript |
-| Database | PostgreSQL + Prisma |
-| Auth | Better Auth |
-| Storage | Local filesystem |
-| Styling | Tailwind CSS |
-| Validation | Zod |
+## Architecture
 
-## ? Quick Start
+```mermaid
+flowchart LR
+    Browser[Next.js Chat UI] --> BFF[Next.js BFF]
+    BFF -->|60-second internal JWT + SSE| Agent[FastAPI Agent]
+    Agent --> Graph[LangGraph State Machine]
+    Graph --> Tools[Permission-scoped Tools]
+    Tools --> LMS[(PostgreSQL LMS Data)]
+    Tools --> Vector[(pgvector Course Chunks)]
+    Graph --> LLM[Ollama / OpenAI-compatible LLM]
+    Agent --> Obs[Logs, Traces, Metrics, Evals]
+```
+
+The graph is intentionally bounded:
+
+```text
+validate -> agent -> tools -> agent -> verify -> persist
+                     ^__________|
+```
+
+This single-agent design keeps latency, cost, failure recovery, and evaluation easier to reason
+about than a multi-agent system.
+
+## Core Capabilities
+
+- Diagnose learning progress using enrollment, quiz, assignment, and deadline data.
+- Generate and persist structured seven-day study plans.
+- Retrieve authorized PDF passages with source title and page citations.
+- Restore multi-turn conversations after a browser refresh.
+- Stream tokens and statuses such as `get_assessment_performance started`.
+- Reject cross-user access through JWT identity, fixed SQL, and repository-level filtering.
+- Expose `/health/live`, `/health/ready`, `/metrics`, and OpenAPI documentation.
+
+## Technology
+
+| Area | Stack |
+| --- | --- |
+| Web | Next.js 14, React, TypeScript, Tailwind CSS |
+| Authentication | Better Auth, short-lived internal HS256 JWT |
+| Agent | Python 3.12, FastAPI, Pydantic v2, LangGraph |
+| Data | PostgreSQL, Prisma, SQLAlchemy Async, Alembic, pgvector |
+| RAG | pypdf, all-MiniLM-L6-v2, exact cosine retrieval |
+| LLM | Ollama with Qwen3 4B; configurable OpenAI-compatible endpoint |
+| Reliability | SSE, HTTP timeouts, bounded retries and tool iterations |
+| Observability | structlog, OpenTelemetry, Prometheus metrics |
+| Quality | pytest, HTTPX, Ruff, mypy, GitHub Actions |
+| Runtime | Docker Compose |
+
+## Security Boundaries
+
+- The browser calls only the Next.js `/api/chatbot` BFF.
+- Next.js validates the Better Auth session and signs a 60-second internal token.
+- FastAPI injects the authenticated user into runtime Tool context.
+- Tool schemas never expose a model-controlled `user_id` argument.
+- LMS access uses fixed, parameterized queries; generated SQL is not executed.
+- Retrieval checks enrollment before searching vectors to prevent cross-course leakage.
+- Logs retain trace IDs and operational metadata, not session cookies or full private prompts.
+
+See [architecture decisions](ai-agent/docs/architecture.md) for tradeoffs and scale paths.
+
+## Run Locally
 
 ### Prerequisites
 
-- Node.js 18+
-- PostgreSQL 14+
-- npm or yarn
+- Docker Desktop
+- Ollama
+- At least 8 GB RAM; 16 GB is recommended for the full stack
 
-### 1. Install Dependencies
-
-```bash
-cd react
-npm install
-```
-
-### 2. Set Up PostgreSQL Database
+### 1. Prepare the model
 
 ```bash
-# Connect to PostgreSQL
-psql -U postgres
-
-# Create database and user
-CREATE DATABASE learning_platform;
-CREATE USER learning_user WITH ENCRYPTED PASSWORD 'your_password';
-GRANT ALL PRIVILEGES ON DATABASE learning_platform TO learning_user;
-
-# Grant schema permissions
-\c learning_platform
-GRANT ALL ON SCHEMA public TO learning_user;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO learning_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO learning_user;
-\q
+ollama pull qwen3:4b
 ```
 
-### 3. Configure Environment Variables
+Ollama must remain available as a background service, but `ollama run` does not need to stay
+open. Docker reaches the host through `host.docker.internal` on Windows and macOS.
 
-```bash
-cp .env.example .env
-```
+### 2. Configure the application
 
-Update `.env` with your values:
+Copy `.env.example` to `.env`, then replace the placeholder secrets. The default LLM settings
+already target local Ollama.
+
+Required values:
 
 ```env
-# Database
-DATABASE_URL="postgresql://learning_user:your_password@localhost:5432/learning_platform"
-
-# Auth (generate with: openssl rand -base64 32)
-BETTER_AUTH_SECRET="your-generated-secret"
-BETTER_AUTH_URL="http://localhost:3000"
-
-# App
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
+BETTER_AUTH_SECRET=replace-with-a-random-secret
+AGENT_INTERNAL_SECRET=replace-with-a-different-32-character-secret
+LLM_API_KEY=ollama
+LLM_BASE_URL=http://host.docker.internal:11434/v1
+LLM_MODEL=qwen3:4b
 ```
 
-### 4. Push Database Schema
+AWS S3 variables are optional until file upload or remote PDF indexing is used. Never commit
+the local `.env` file.
+
+### 3. Start the stack
 
 ```bash
-npm run db:push
+docker compose up --build -d
+docker compose ps
 ```
 
-### 5. Start Development Server
+Open:
+
+- Web application: http://localhost:3000
+- Agent API documentation: http://localhost:8000/docs
+- Agent readiness: http://localhost:8000/health/ready
+- Prisma Studio: http://localhost:5555 after starting it with the command below
 
 ```bash
-npm run dev
+docker compose exec -d web npm run db:studio -- --hostname 0.0.0.0 --port 5555
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
-
-## ? Project Structure
-
-```
-src/
-念岸岸 app/                    # Next.js App Router pages
-岫   念岸岸 api/               # API routes
-岫   岫   念岸岸 auth/          # Better Auth endpoints
-岫   岫   念岸岸 upload/        # File upload handling
-岫   岫   念岸岸 calendar/      # ICS export
-岫   岫   念岸岸 certificates/  # Certificate verification
-岫   岫   弩岸岸 discussion/    # Real-time SSE
-岫   念岸岸 (auth)/            # Auth pages (login, register)
-岫   弩岸岸 (dashboard)/       # Protected dashboard pages
-念岸岸 actions/               # Server Actions
-岫   念岸岸 course.ts          # Course CRUD
-岫   念岸岸 enrollment.ts      # Enrollment management
-岫   念岸岸 module.ts          # Module management
-岫   念岸岸 content.ts         # Content management
-岫   念岸岸 quiz.ts            # Quiz & questions
-岫   念岸岸 assignment.ts      # Assignment management
-岫   念岸岸 submission.ts      # Submission & grading
-岫   念岸岸 discussion.ts      # Discussion posts
-岫   念岸岸 certificate.ts     # Certificate generation
-岫   弩岸岸 analytics.ts       # Dashboard analytics
-念岸岸 lib/                   # Utilities
-岫   念岸岸 auth.ts            # Better Auth config
-岫   念岸岸 auth-server.ts     # Server-side auth helpers
-岫   念岸岸 auth-client.ts     # Client-side auth
-岫   念岸岸 db.ts              # Prisma client
-岫   念岸岸 storage.ts         # Local file storage
-岫   念岸岸 pdf.ts             # Certificate PDF generation
-岫   念岸岸 calendar.ts        # ICS generation
-岫   念岸岸 validations.ts     # Zod schemas
-岫   弩岸岸 utils.ts           # Helper functions
-念岸岸 types/                 # TypeScript types
-弩岸岸 middleware.ts          # Route protection
-```
-
-## ?? Database Schema
-
-### Core Entities
-
-- **User**: Teachers and students with role-based access
-- **Course**: Created by teachers, enrolled by students
-- **Module**: Organizes course content
-- **Content**: PDF, video, link resources
-- **Quiz/Question**: Multiple-choice assessments
-- **Assignment/Submission**: Student work and grading
-- **DiscussionPost**: Course forums with replies
-- **Certificate**: Completion certificates
-
-### Key Relationships
-
-- User ↙ Course (1:N as teacher)
-- User ? Course (M:N via Enrollment)
-- Course ↙ Module ↙ Content/Quiz/Assignment
-- User ↙ Submission ↙ Assignment
-
-## ? Authentication
-
-Using Better Auth with email/password:
-
-```typescript
-// Client-side
-import { signIn, signUp, signOut, useSession } from "@/lib/auth-client";
-
-// Sign up
-await signUp.email({
-  email: "user@example.com",
-  password: "password123",
-  name: "John Doe",
-  role: "STUDENT", // or "TEACHER"
-});
-
-// Sign in
-await signIn.email({
-  email: "user@example.com",
-  password: "password123",
-});
-```
-
-## ? Server Actions
-
-All mutations use Next.js Server Actions:
-
-```typescript
-// Course operations
-import { createCourse, updateCourse, deleteCourse } from "@/actions";
-
-// Create a course (teacher only)
-const course = await createCourse({
-  title: "Web Development 101",
-  description: "Learn the basics",
-});
-
-// Enroll in a course (student)
-import { enrollInCourse } from "@/actions";
-await enrollInCourse(courseId);
-```
-
-## ? File Uploads
-
-Files are stored locally in `/public/uploads/`:
-
-```typescript
-// Client-side upload
-const formData = new FormData();
-formData.append("file", file);
-formData.append("folder", "submissions");
-
-const response = await fetch("/api/upload", {
-  method: "POST",
-  body: formData,
-});
-
-const { url, key } = await response.json();
-```
-
-## ? Calendar Export
-
-Export deadlines to calendar:
-
-```typescript
-// Download .ics file
-window.location.href = `/api/calendar/export?courseId=${courseId}`;
-```
-
-## ? Testing the API
+Stop services while preserving database data:
 
 ```bash
-# Register a new user
-curl -X POST http://localhost:3000/api/auth/sign-up/email \
-  -H "Content-Type: application/json" \
-  -d '{"email": "test@example.com", "password": "password123", "name": "Test User"}'
-
-# Login and save session
-curl -X POST http://localhost:3000/api/auth/sign-in/email \
-  -H "Content-Type: application/json" \
-  -c cookies.txt \
-  -d '{"email": "test@example.com", "password": "password123"}'
-
-# Check session
-curl http://localhost:3000/api/auth/get-session -b cookies.txt
-
-# Upload a file (authenticated)
-curl -X POST http://localhost:3000/api/upload \
-  -b cookies.txt \
-  -F "file=@/path/to/file.pdf"
-
-# Verify a certificate
-curl "http://localhost:3000/api/certificates/verify?number=CERT-123456"
+docker compose down
 ```
 
-## ?? Available Scripts
+Do not add `-v` unless deleting all local PostgreSQL data is intentional.
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start development server |
-| `npm run build` | Production build |
-| `npm run start` | Start production server |
-| `npm run lint` | Run ESLint |
-| `npm run db:generate` | Generate Prisma client |
-| `npm run db:push` | Push schema to database |
-| `npm run db:studio` | Open Prisma Studio (GUI) |
-| `npm run db:seed` | Seed sample data |
+## API Contract
 
-## ? Troubleshooting
+The browser-facing BFF proxies a typed SSE protocol from the Agent:
 
-### Database Connection Error
+```text
+POST /v1/agent/runs/stream
+events: token | tool_status | final | error
+```
 
-Ensure PostgreSQL is running:
+The final event contains `conversation_id`, `answer_markdown`, `citations`, an optional
+`study_plan`, suggested actions, and a trace ID. Protected Agent endpoints require the internal
+JWT and are not designed for direct browser access.
+
+## Quality and Evaluation
+
+Agent tests cover schema validation, JWT security, tenant isolation, ingestion, and planning.
+The offline dataset contains 30 cases for tool routing, grounding, authorization, and adversarial
+inputs.
 
 ```bash
-# Test connection
-psql -d learning_platform -U learning_user
+cd ai-agent
+pip install -e ".[dev]"
+ruff check app tests evals
+mypy app --ignore-missing-imports
+pytest
 ```
 
-### Permission Denied for Schema
+Evaluation targets are documented, but no target metric is presented as an achieved result.
+Measured routing accuracy, citation coverage, latency, and token usage should only be published
+after generating an evaluation report against representative data.
 
-Grant schema permissions:
+## Repository Layout
 
-```sql
-\c learning_platform
-GRANT ALL ON SCHEMA public TO learning_user;
+```text
+ai-agent/                 FastAPI, LangGraph, tools, RAG, tests, and evaluations
+src/app/                  Next.js pages, Route Handlers, and Server Actions
+src/components/chatbot/   SSE chat interface and grounded response rendering
+prisma/                   LMS data model and seed data
+docker/postgres/          PostgreSQL and pgvector initialization
+.github/workflows/        Web and Agent quality pipelines
 ```
 
-### Port Already in Use
+## Deliberate Limits
 
-```bash
-lsof -ti:3000 | xargs kill -9
-```
+- V1 serves student learning workflows; it does not modify grades.
+- PDF ingestion supports text PDFs, not OCR for scanned documents.
+- Exact vector search is preferred until corpus measurements justify HNSW.
+- Local Ollama is optimized for reproducible demos, not high-throughput production serving.
+- The in-memory discussion SSE broadcaster would require Redis for horizontal Web scaling.
 
-### Update User Role to Teacher
+## Additional Material
 
-```bash
-psql -d learning_platform -c "UPDATE users SET role = 'TEACHER' WHERE email = 'your@email.com';"
-```
+- [Agent service guide](ai-agent/README.md)
+- [Architecture decisions](ai-agent/docs/architecture.md)
+- [Five-minute demo and interview discussion map](ai-agent/docs/demo-script.md)
+- [Resume-ready project descriptions](ai-agent/docs/resume.md)
+- [Original LMS walkthrough](https://www.youtube.com/watch?v=XEOUFniIkoA)
 
-## ? Team
+## License
 
-| Member | Responsibilities |
-|--------|-----------------|
-| Zhiyuan Diao | Architecture, Auth, Database |
-| Housen Zhu | Course, Assignment, Grading |
-| Tianrui Du | Analytics, Calendar, Certificates |
-
-## ? License
-
-MIT License - Built for CS Course Project
+MIT

@@ -21,15 +21,9 @@ export default function CreateCoursePage() {
 
     try {
       const result = await createCourse({ title, description });
-      
-      if ("error" in result) {
-        setError(result.error);
-        setLoading(false);
-        return;
-      }
 
       router.push(`/dashboard/courses/${result.id}`);
-    } catch (err) {
+    } catch {
       setError("Failed to create course. Please try again.");
       setLoading(false);
     }
