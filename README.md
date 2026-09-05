@@ -2,8 +2,8 @@
 
 Production-oriented AI learning agent built on a full-stack course management platform.
 
-[![Web Build](https://github.com/HousenZhu/react/actions/workflows/web.yml/badge.svg?branch=ZHS)](https://github.com/HousenZhu/react/actions/workflows/web.yml)
-[![AI Agent Quality](https://github.com/HousenZhu/react/actions/workflows/ai-agent.yml/badge.svg?branch=ZHS)](https://github.com/HousenZhu/react/actions/workflows/ai-agent.yml)
+[![Web Build](https://github.com/HousenZhu/personalized-learning-platform/actions/workflows/web.yml/badge.svg?branch=ZHS)](https://github.com/HousenZhu/personalized-learning-platform/actions/workflows/web.yml)
+[![AI Agent Quality](https://github.com/HousenZhu/personalized-learning-platform/actions/workflows/ai-agent.yml/badge.svg?branch=ZHS)](https://github.com/HousenZhu/personalized-learning-platform/actions/workflows/ai-agent.yml)
 
 CoursePilot turns real LMS data into permission-scoped Agent tools. Instead of injecting one
 large user-context string into a chatbot prompt, it uses a bounded LangGraph workflow to query
