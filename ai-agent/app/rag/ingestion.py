@@ -30,6 +30,16 @@ def _chunk_words(text: str, size: int = 400, overlap: int = 60) -> list[str]:
     return chunks
 
 
+def _read_local_content(file_url: str, uploads_dir: str, max_pdf_bytes: int) -> bytes:
+    root = Path(uploads_dir).resolve()
+    candidate = (root / file_url.lstrip("/")).resolve()
+    if root not in candidate.parents:
+        raise ValueError("Content path escapes the configured upload directory")
+    if candidate.stat().st_size > max_pdf_bytes:
+        raise ValueError("PDF exceeds the configured size limit")
+    return candidate.read_bytes()
+
+
 async def _read_content(file_url: str) -> bytes:
     settings = get_settings()
     if file_url.startswith(("http://", "https://")):
@@ -51,13 +61,12 @@ async def _read_content(file_url: str) -> bytes:
                         raise ValueError("PDF exceeds the configured size limit")
                 return bytes(data)
 
-    root = Path(settings.uploads_dir).resolve()
-    candidate = (root / file_url.lstrip("/")).resolve()
-    if root not in candidate.parents:
-        raise ValueError("Content path escapes the configured upload directory")
-    if candidate.stat().st_size > settings.max_pdf_bytes:
-        raise ValueError("PDF exceeds the configured size limit")
-    return await asyncio.to_thread(candidate.read_bytes)
+    return await asyncio.to_thread(
+        _read_local_content,
+        file_url,
+        settings.uploads_dir,
+        settings.max_pdf_bytes,
+    )
 
 
 def _extract_chunks(data: bytes, max_pages: int) -> list[dict[str, Any]]:

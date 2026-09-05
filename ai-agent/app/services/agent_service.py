@@ -7,7 +7,6 @@ from uuid import UUID, uuid4
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
 from app.agent import build_agent_graph
-from app.config import get_settings
 from app.observability.logging import get_logger
 from app.observability.metrics import AGENT_LATENCY, AGENT_RUNS
 from app.repositories.agent import AgentRepository

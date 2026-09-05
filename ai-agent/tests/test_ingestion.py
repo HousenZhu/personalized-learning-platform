@@ -1,4 +1,8 @@
-from app.rag.ingestion import _chunk_words
+from pathlib import Path
+
+import pytest
+
+from app.rag.ingestion import _chunk_words, _read_local_content
 
 
 def test_chunking_is_bounded_and_overlapping() -> None:
@@ -11,3 +15,18 @@ def test_chunking_is_bounded_and_overlapping() -> None:
 
 def test_chunking_ignores_empty_text() -> None:
     assert _chunk_words("") == []
+
+
+def test_read_local_content(tmp_path: Path) -> None:
+    document = tmp_path / "course.pdf"
+    document.write_bytes(b"course material")
+
+    assert _read_local_content("course.pdf", str(tmp_path), 1024) == b"course material"
+
+
+def test_read_local_content_rejects_path_escape(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "private.pdf"
+    outside.write_bytes(b"private")
+
+    with pytest.raises(ValueError, match="escapes"):
+        _read_local_content("../private.pdf", str(tmp_path), 1024)

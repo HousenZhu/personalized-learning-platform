@@ -6,7 +6,6 @@ from typing import Annotated, Any
 
 from langchain_core.tools import BaseTool, tool
 
-from app.config import get_settings
 from app.observability.metrics import TOOL_CALLS
 from app.rag.retrieval import search_course_materials as retrieve_materials
 from app.repositories.agent import AgentRepository

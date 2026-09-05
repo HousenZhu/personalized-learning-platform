@@ -1,5 +1,6 @@
 import json
 import re
+from collections.abc import Sequence
 from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
@@ -35,7 +36,7 @@ def _message_text(message: BaseMessage) -> str:
 
 
 def _extract_tool_artifacts(
-    messages: list[BaseMessage],
+    messages: Sequence[BaseMessage],
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     citations: list[dict[str, Any]] = []
     study_plan: dict[str, Any] | None = None
@@ -57,7 +58,7 @@ def _extract_tool_artifacts(
     return citations, study_plan
 
 
-def _tool_kinds(messages: list[BaseMessage]) -> set[str]:
+def _tool_kinds(messages: Sequence[BaseMessage]) -> set[str]:
     kinds: set[str] = set()
     for message in messages:
         if not isinstance(message, ToolMessage):
